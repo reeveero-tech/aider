@@ -26,7 +26,7 @@ from api.services.process_service import process_service
 from api.routes import register_routes
 
 # ============================================================
-# إعداد التسجيل (Logging)
+# إعداد التسجيل (Logging) - stdout فقط لتجنب الاعتماد على workspace قبل التهيئة
 # ============================================================
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -37,7 +37,6 @@ logging.basicConfig(
     format=LOG_FORMAT,
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(workspace_service.logs_dir / "api.log", encoding="utf-8")
     ]
 )
 
@@ -60,21 +59,20 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 بدء تشغيل Aider Agent API")
     logger.info(f"⏰ الوقت: {datetime.utcnow().isoformat()}")
     logger.info(f"🐍 Python: {sys.version}")
-    logger.info(f"📁 مسار العمل: {workspace_service.workspace_root}")
     logger.info("=" * 60)
     
     try:
-        # 1. تهيئة مساحة العمل
+        # 1. تهيئة مساحة العمل (المجلدات فقط، لا تعتمد على قاعدة البيانات)
         logger.info("📂 تهيئة مساحة العمل...")
         workspace_service.initialize()
-        logger.info(f"   ✓ المجلدات جاهزة")
+        logger.info(f"   ✓ المجلدات جاهزة في: {workspace_service.workspace_root}")
         
         # 2. تهيئة قاعدة البيانات
         logger.info("🗄️ تهيئة قاعدة البيانات...")
         db_service.initialize()
         logger.info(f"   ✓ SQLite جاهز: {workspace_service.data_dir / 'agent.db'}")
         
-        # 3. تحميل الإعدادات
+        # 3. تحميل الإعدادات (بعد تهيئة قاعدة البيانات)
         logger.info("⚙️ تحميل الإعدادات...")
         model = settings_service.get_default_model()
         timeout = settings_service.get_job_timeout()
@@ -83,6 +81,13 @@ async def lifespan(app: FastAPI):
         
         # 4. تعيين مهلة العمليات
         process_service.set_timeout(timeout)
+        
+        # 5. إضافة FileHandler بعد تهيئة workspace
+        log_file = workspace_service.logs_dir / "api.log"
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+        logging.getLogger().addHandler(file_handler)
+        logger.info(f"   ✓ ملف السجل: {log_file}")
         
         logger.info("✅ جميع الخدمات جاهزة للعمل")
         logger.info("=" * 60)
@@ -285,5 +290,5 @@ if __name__ == "__main__":
         reload=False,
         log_level=LOG_LEVEL.lower(),
         access_log=True,
-        workers=1  # عملية واحدة بسبب SQLite
+        workers=1
     )
