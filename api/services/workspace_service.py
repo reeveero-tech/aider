@@ -2,17 +2,23 @@ import os
 import shutil
 from pathlib import Path
 from typing import Optional
-from .settings_service import settings_service
+
 
 class WorkspaceService:
+    """
+    إدارة مساحة العمل والمجلدات.
+    تقرأ WORKSPACE_DIR من متغير البيئة مباشرة لتجنب الاعتماد على SettingsService
+    الذي يحتاج قاعدة بيانات مهيأة مسبقاً.
+    """
+
     def __init__(self):
         self._workspace_root: Optional[Path] = None
 
     @property
     def workspace_root(self) -> Path:
-        """المسار الجذر لمساحة العمل"""
+        """المسار الجذر لمساحة العمل - لا يعتمد على أي خدمة أخرى"""
         if not self._workspace_root:
-            ws_path = settings_service.get_workspace_path()
+            ws_path = os.getenv("WORKSPACE_DIR", "/workspace")
             self._workspace_root = Path(ws_path).resolve()
         return self._workspace_root
 
@@ -37,11 +43,10 @@ class WorkspaceService:
             self.workspace_root,
             self.repos_dir,
             self.logs_dir,
-            self.data_dir
+            self.data_dir,
         ]
         for dir_path in dirs:
             dir_path.mkdir(parents=True, exist_ok=True)
-            # التأكد من صلاحيات الكتابة
             if not os.access(dir_path, os.W_OK):
                 raise PermissionError(f"No write permission for {dir_path}")
 
@@ -78,7 +83,7 @@ class WorkspaceService:
         """الحصول على معلومات استخدام القرص"""
         total_size = 0
         file_count = 0
-        
+
         for dir_path in [self.repos_dir, self.logs_dir, self.data_dir]:
             if dir_path.exists():
                 for root, dirs, files in os.walk(dir_path):
@@ -87,21 +92,21 @@ class WorkspaceService:
                         if file_path.exists():
                             total_size += file_path.stat().st_size
                             file_count += 1
-        
+
         return {
             "workspace_root": str(self.workspace_root),
             "total_size_bytes": total_size,
             "total_size_mb": round(total_size / (1024 * 1024), 2),
-            "total_files": file_count
+            "total_files": file_count,
         }
 
     def cleanup_old_logs(self, days: int = 7):
         """تنظيف السجلات القديمة"""
         from datetime import datetime, timedelta
-        
+
         cutoff = datetime.now() - timedelta(days=days)
         log_files = list(self.logs_dir.glob("*.log"))
-        
+
         cleaned = 0
         for log_file in log_files:
             if log_file.is_file():
@@ -109,8 +114,9 @@ class WorkspaceService:
                 if mtime < cutoff:
                     log_file.unlink()
                     cleaned += 1
-        
+
         return cleaned
+
 
 # نسخة عالمية
 workspace_service = WorkspaceService()
